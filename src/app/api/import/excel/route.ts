@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     await prisma.importBatch.create({
       data: {
         filename: 'Daily Prod Report Mar 2026.xlsb',
+        type: 'DAILY_PROD',
         status: 'PROCESSING'
       }
     });
