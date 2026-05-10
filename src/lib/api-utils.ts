@@ -61,7 +61,7 @@ export async function handleApiError(error: any, context: string) {
   if (error instanceof ZodError) {
     return NextResponse.json({
       error: 'Validation Failed',
-      details: error.errors.map(e => ({ path: e.path, message: e.message }))
+      details: error.issues.map(e => ({ path: e.path, message: e.message }))
     }, { status: 400 });
   }
 
