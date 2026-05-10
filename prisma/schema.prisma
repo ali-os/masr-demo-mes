@@ -38,7 +38,9 @@ enum ImportStatus {
 model User {
   id           String     @id @default(uuid())
   username     String     @unique
+  email        String     @unique
   name         String
+  passwordHash String
   roleId       String
   departmentId String
   createdAt    DateTime   @default(now())

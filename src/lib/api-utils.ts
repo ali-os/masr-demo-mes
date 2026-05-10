@@ -12,9 +12,23 @@ let _systemUserId: string | null = null;
 export async function getSystemUserId(): Promise<string> {
   if (_systemUserId) return _systemUserId;
   
+  const adminRole = await prisma.role.findUnique({ where: { code: 'ADMIN' } });
+  const prodDept = await prisma.department.findUnique({ where: { code: 'PROD' } });
+
+  if (!adminRole || !prodDept) {
+    throw new Error('Database not seeded: ADMIN role or PROD department missing');
+  }
+
   const user = await prisma.user.upsert({
     where: { email: 'system@mes.local' },
-    create: { email: 'system@mes.local', name: 'System', role: 'ADMIN', passwordHash: '' },
+    create: { 
+      email: 'system@mes.local', 
+      username: 'system',
+      name: 'System', 
+      passwordHash: '',
+      roleId: adminRole.id,
+      departmentId: prodDept.id
+    },
     update: {}
   });
   _systemUserId = user.id;
