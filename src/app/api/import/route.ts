@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     });
 
     // Run the Python parser
-    const scriptPath = join(process.cwd(), '..', 'excel_ingest_full.py');
+    const scriptPath = join(process.cwd(), 'excel_ingest_full.py');
     let result;
     try {
       const output = execSync(

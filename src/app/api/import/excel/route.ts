@@ -5,7 +5,7 @@ import prisma from '@/lib/db';
 
 export async function POST(request: Request) {
   try {
-    const pythonScriptPath = path.join(process.cwd(), '..', 'excel_ingest.py');
+    const pythonScriptPath = path.join(process.cwd(), 'excel_ingest.py');
     
     // Log the import attempt in the DB
     await prisma.importBatch.create({
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       }
     });
 
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
       exec(`python "${pythonScriptPath}"`, async (error, stdout, stderr) => {
         if (error) {
           console.error(`exec error: ${error}`);
