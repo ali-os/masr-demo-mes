@@ -95,6 +95,21 @@ async function main() {
     })
   }
 
+  // 6. Product Templates
+  const templates = [
+    { name: 'Standard Cream 200ml', category: 'Cream', ingredientRatio: 0.185, idealSpeed: 45, targetOEE: 80 },
+    { name: 'Standard Liquid 500ml', category: 'Liquid', ingredientRatio: 0.500, idealSpeed: 60, targetOEE: 85 },
+    { name: 'Roll-on 50ml', category: 'Liquid', ingredientRatio: 0.050, idealSpeed: 80, targetOEE: 90 },
+  ]
+
+  for (const template of templates) {
+    await prisma.productTemplate.upsert({
+      where: { name: template.name },
+      update: template,
+      create: template,
+    })
+  }
+
   console.log('Seed completed successfully.')
 }
 
