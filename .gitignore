@@ -1,18 +1,18 @@
 # Next.js
-app/node_modules/
-app/.next/
-app/out/
-app/build
-app/.env
-app/.env.local
-app/.env.development.local
-app/.env.test.local
-app/.env.production.local
+node_modules/
+.next/
+out/
+build/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Prisma
-app/prisma/generated/
-app/prisma/*.db
-app/prisma/*.db-journal
+prisma/generated/
+prisma/*.db
+prisma/*.db-journal
 
 # Python
 __pycache__/
