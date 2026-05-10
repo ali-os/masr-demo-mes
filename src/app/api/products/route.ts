@@ -52,6 +52,6 @@ export async function POST(request: Request) {
 
     return apiResponse(result, 201);
   } catch (error) {
-    return handleApiError(error, 'CREATE_PRODUCT', (await request.json()).userId);
+    return handleApiError(error, 'CREATE_PRODUCT');
   }
 }
