@@ -3,10 +3,11 @@ import { BomItemSchema } from '@/lib/validations/mes.schema';
 import { handleApiError, apiResponse } from '@/lib/api-utils';
 
 // GET /api/bom/[productId]
-export async function GET(request: Request, { params }: { params: { productId: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ productId: string }> }) {
   try {
+    const { productId } = await params;
     const items = await prisma.bomItem.findMany({
-      where: { productId: params.productId },
+      where: { productId },
       orderBy: { category: 'asc' }
     });
     return apiResponse(items);
@@ -16,10 +17,11 @@ export async function GET(request: Request, { params }: { params: { productId: s
 }
 
 // POST /api/bom/[productId] — add a packaging item
-export async function POST(request: Request, { params }: { params: { productId: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ productId: string }> }) {
   try {
+    const { productId } = await params;
     const body = await request.json();
-    const validatedData = BomItemSchema.parse({ ...body, productId: params.productId });
+    const validatedData = BomItemSchema.parse({ ...body, productId });
 
     const item = await prisma.bomItem.create({
       data: {
@@ -49,8 +51,9 @@ export async function POST(request: Request, { params }: { params: { productId: 
 }
 
 // DELETE /api/bom/[productId]?itemId=xxx
-export async function DELETE(request: Request, { params }: { params: { productId: string } }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ productId: string }> }) {
   try {
+    const { productId } = await params;
     const { searchParams } = new URL(request.url);
     const itemId = searchParams.get('itemId');
     if (!itemId) throw new Error('Missing itemId');
