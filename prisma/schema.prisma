@@ -27,8 +27,10 @@ enum LossCategory {
 
 enum ImportStatus {
   PENDING
+  PROCESSING
   SUCCESS
   FAILED
+  COMPLETED
 }
 
 // ─── Users & Auth ───────────────────────────────────────────────────────────
