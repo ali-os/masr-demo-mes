@@ -1,5 +1,6 @@
 {
   "name": "app",
+  "description": "MES Platform - Production Build v2",
   "version": "0.1.0",
   "private": true,
   "scripts": {
