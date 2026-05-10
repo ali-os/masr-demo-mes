@@ -41,13 +41,17 @@ async function main() {
 
   // 3. Lines
   const lines = [
-    { name: 'Production 1 (F1)' },
-    { name: 'Production 2 (F2)' },
+    { code: 'F1', name: 'Production 1 (F1)' },
+    { code: 'F2', name: 'Production 2 (F2)' },
   ]
 
-  const lineRecords = []
+  const lineRecords: any[] = []
   for (const line of lines) {
-    const l = await prisma.line.create({ data: line })
+    const l = await prisma.line.upsert({
+      where: { code: line.code },
+      update: line,
+      create: line,
+    })
     lineRecords.push(l)
   }
 
@@ -76,11 +80,11 @@ async function main() {
 
   // 5. Loss Codes
   const lossCodes = [
-    { code: 'MF-012', category: 'Mechanical', subcategory: 'Valve', labelEn: 'Valve Leak', labelAr: 'تسريب صمام', oeeBucket: 'AVAILABILITY' },
-    { code: 'ADJ-003', category: 'Adjustment', subcategory: 'Sensor', labelEn: 'Sensor Re-alignment', labelAr: 'ضبط حساس', oeeBucket: 'PERFORMANCE' },
-    { code: 'SU-001', category: 'Setup', subcategory: 'Changeover', labelEn: 'Changeover', labelAr: 'تغيير صنف', oeeBucket: 'PLANNED' },
-    { code: 'WH-002', category: 'Warehouse', subcategory: 'Materials', labelEn: 'Waiting Materials', labelAr: 'انتظار خامات', oeeBucket: 'AVAILABILITY' },
-    { code: 'Q-001', category: 'Quality', subcategory: 'Defect', labelEn: 'Defect Check', labelAr: 'فحص عيوب', oeeBucket: 'QUALITY' },
+    { code: 'MF-012', category: 'MF', subcategory: 'Valve', labelEn: 'Valve Leak', labelAr: 'تسريب صمام', oeeBucket: 'AVAILABILITY' },
+    { code: 'ADJ-003', category: 'ADJ', subcategory: 'Sensor', labelEn: 'Sensor Re-alignment', labelAr: 'ضبط حساس', oeeBucket: 'PERFORMANCE' },
+    { code: 'SU-001', category: 'ADJ', subcategory: 'Changeover', labelEn: 'Changeover', labelAr: 'تغيير صنف', oeeBucket: 'AVAILABILITY' },
+    { code: 'WH-002', category: 'WH', subcategory: 'Materials', labelEn: 'Waiting Materials', labelAr: 'انتظار خامات', oeeBucket: 'AVAILABILITY' },
+    { code: 'Q-001', category: 'Q', subcategory: 'Defect', labelEn: 'Defect Check', labelAr: 'فحص عيوب', oeeBucket: 'QUALITY' },
   ]
 
   for (const lc of lossCodes) {
