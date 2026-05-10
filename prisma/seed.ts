@@ -79,7 +79,7 @@ async function main() {
   }
 
   // 5. Loss Codes
-  const lossCodes = [
+  const lossCodes: any[] = [
     { code: 'MF-012', category: 'MF', subcategory: 'Valve', labelEn: 'Valve Leak', labelAr: 'تسريب صمام', oeeBucket: 'AVAILABILITY' },
     { code: 'ADJ-003', category: 'ADJ', subcategory: 'Sensor', labelEn: 'Sensor Re-alignment', labelAr: 'ضبط حساس', oeeBucket: 'PERFORMANCE' },
     { code: 'SU-001', category: 'ADJ', subcategory: 'Changeover', labelEn: 'Changeover', labelAr: 'تغيير صنف', oeeBucket: 'AVAILABILITY' },
