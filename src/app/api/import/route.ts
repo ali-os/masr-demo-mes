@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       data: {
         status: 'SUCCESS',
         recordCount: result.inserted || 0,
-        errors: result.warnings?.length > 0 ? { warnings: result.warnings } : null
+        errors: result.warnings?.length > 0 ? { warnings: result.warnings } : undefined
       }
     });
 
