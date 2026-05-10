@@ -1,0 +1,1664 @@
+Complete MES and OEE Planning Materials Sensor and Excel Parity Design for a Cosmetics Filling and Packing Factory
+Executive Summary
+A production-grade system for this factory should not be framed as “an OEE dashboard with some forms.” It should be designed as a layered operations platform that joins manufacturing execution, short-horizon planning, BOM-driven material readiness, sensor and PLC ingestion, bilingual loss coding, Excel-parity reporting, and auditable approvals into one governed source of truth. The strongest reference architecture aligns business-to-manufacturing interfaces with models from International Society of Automation[1] ISA-95 and ISA-88, uses industrial interoperability patterns defined by the OPC Foundation[2] and OASIS[3], and applies OT security practices from the National Institute of Standards and Technology[4] and the Cybersecurity and Infrastructure Security Agency[5]. [6]
+The uploaded plant materials suggest a practical starting point rather than a blank-sheet exercise: a preparation-to-fill/cap-to-pack pilot flow, machine-level OEE sheets, and a bilingual loss-code library. That means the implementation should preserve historical semantics from existing spreadsheets while moving live truth into governed transactional storage. Excel should remain a seed-data and export format after cutover, not the operational database. fileciteturn0file0
+The recommended operating model is departmental and sequential: Planning creates demand and line allocations; Purchasing raises supply intent; Stores reserves and issues ingredients and packaging materials; Ingredients and Preparation transform recipe demand into prepared bulk; Filling and Packing lines execute machine-backed production; Packaging labor completes manual packing stages where applicable; Finished Goods Stores receive achievement; Maintenance owns line and station reliability; Quality owns hold, release, rejection, and rework decisions. The system’s main job is to make every handoff explicit, digitally traceable, and time-bounded. [7]
+The most important design choice is to make every data point belong to one of six source types: AUTO_PLC, AUTO_SENSOR, MANUAL, IMPORTED, SYSTEM_CALCULATED, or CORRECTED. Every table, screen, API, alert, and export should carry that provenance, plus approval state, lock state, and audit history. Without that separation, parity with Excel may be possible for a few weeks, but trust in the numbers will eventually collapse. This is especially important where operator downtime coding, reject entry, and backdated corrections interact with machine telemetry. [8]
+The strongest technical stack is on-prem first: PLC and sensor inputs land in an edge gateway, are normalized into an event model, are deduplicated and buffered locally for offline conditions, and are forwarded through secure northbound interfaces into the transactional core. OPC UA is the preferred northbound protocol from controllers or industrial PCs because of its information modeling, subscriptions, security model, and audits; MQTT 5 is the preferred lightweight event bus from gateways to the plant application stack because it is publish/subscribe, payload-agnostic, and supports QoS levels that fit telemetry, alerts, and command acknowledgements. Network segmentation, least privilege, and no direct Internet exposure to OT zones should be treated as non-negotiable controls. [9]
+The biggest implementation risks are not database design or dashboards. They are five operational failure modes: hidden spreadsheet logic, inconsistent master data, ambiguous downtime codes, missing material readiness checks before line start, and uncaptured waiting time between stations. The report below addresses those directly with a data model, formula registry, department handoff model, line-state semantics, planning controls, Excel reconciliation strategy, and a staged rollout that starts with one pilot line and expands only after formula parity and user-role accountability are proven. [10]
+Operating Model and Department Responsibilities
+The correct operating model is value-stream based, not software-module based. In this factory, the natural chain is: forecast and target creation → purchasing and supplier acknowledgment → stores receipt and reservation → ingredient issue and preparation → line execution through fill/cap and pack stations → packaging labor and final boxing → finished-goods receipt → historical analysis and continuous improvement. ISA-95’s separation between enterprise planning and manufacturing control is a useful boundary here, while ISA-88’s batch-oriented vocabulary is a good fit for ingredient preparation and formula-driven SKU variation. [11]
+flowchart LR    A[Planning] --> B[Purchasing]    B --> C[Raw & Packing Stores]    C --> D[Ingredients / Preparation]    C --> E[Line-side Packing Material Issue]    D --> F[Filling and Capping Line]    E --> F    F --> G[Packaging / Cartoning / Shrink]    G --> H[Finished Goods Store]    F --> I[Quality]    G --> I    F --> J[Maintenance]    G --> J
+The role model should follow the physical flow and the approval burden. Operators should record only immediate operational truth. Supervisors should complete missing context and close operational gaps. Departmental specialists should own the fields that create downstream accountability. Managers should review exceptions and locked-period corrections, not become de facto data entry clerks. That structure reduces both latency and blame-shifting. [12]
+Department and role matrix
+Department or role
+Core responsibility
+Receives from
+Hands off to
+Primary manual inputs
+Primary approvals
+Key KPIs
+Planning
+Creates plan horizon, SKU targets, line and shift allocations, assumptions
+Sales demand, historical performance
+Purchasing, Stores, Production
+plan quantity, line assignment, target rate, due date, priority, planner notes
+plan release, replanning, forced capacity exceptions
+plan adherence, schedule attainment, target risk
+Purchasing
+Converts material need into supplier action
+Planning, Stores min/max signals
+Stores
+PO reference, expected receipt date, shortage note, supplier status
+supplier exception approval
+procurement lead time, shortage rate
+Raw material stores
+Receives ingredients and packaging materials, reserves to plans, issues to departments
+Purchasing
+Preparation, line-side users
+GRN, lot assignment, reservation, issue note, shortage reason
+issue confirmation
+reservation accuracy, issue lead time
+Ingredients / Preparation
+Weighs, stages, and prepares bulk or semi-finished mix per batch/recipe
+Stores, Planning
+Filling line
+batch start/finish, actual ingredient consumed, prep note, deviation note
+batch release to line
+prep yield, batch lateness, ingredient variance
+Filling and capping operators
+Runs machines, enters downtime reasons, confirms counts and issues
+Preparation, line-side stores
+Packaging, Quality
+downtime code, comment, quality count, work-order confirmations
+none beyond own entry
+availability, performance, good count
+Packaging department
+Handles carton, shrink, manual pack, boxing, palletization
+Filling line, stores
+Finished goods store
+packed count, reject packaging reason, shortage note
+pack completion
+throughput, packing labor productivity
+Quality
+Classifies defects, hold/release, rework, quarantine, inspections
+Line and packaging events
+Finished goods or rework route
+defect reason, hold qty, release decision, quality notes
+quality approval, release
+quality rate, defect Pareto
+Maintenance
+Responds to machine faults, closes maintenance causes, validates recurrence
+Line alerts and downtime
+Production and reliability reporting
+action taken, root cause, part used, closure note
+maintenance closure
+MTTR, MTBF, recurrence rate
+Finished goods store
+Receives achieved finished units, location and lot traceability
+Packaging, Quality
+dispatch or ERP
+FG receipt, pallet/lot scan, discrepancy note
+FG receipt confirmation
+achievement accuracy, put-away latency
+Supervisor
+Shift coordination, completeness, missing-input closure, exception handling
+All operational departments
+Managers
+shift note, handover note, correction request
+shift close, backdated edits
+shift OEE, completeness score
+Production manager / plant manager
+Review, governance, locked-period reopening
+All departments
+executive reporting
+approval note, reopen reason
+plan exception, historical correction
+weekly OEE, service level, loss mix
+Admin / IT
+Identity, permissions, devices, formula config, integration control
+n/a
+all modules
+config edits only
+config activation
+uptime, config integrity
+This role map implies a role-permission matrix that is strict by intent. The safe pattern is “view broadly, edit narrowly, approve selectively, reopen rarely.” That is aligned with OT governance and with the need to preserve reliability and auditability in mixed automation environments. [13]
+Role permission matrix
+V = view, C = create, E = edit open records, A = approve or close, R = reopen locked records
+Capability
+Operator
+Supervisor
+Planning
+Stores
+Prep
+Packaging
+Quality
+Maintenance
+Manager
+Admin
+Create work order from plan
+C
+A
+Issue ingredient or material
+V
+C/E
+C/E
+C/E
+V
+Enter downtime cause
+C
+E/A
+V
+V
+Enter defect or reject
+C
+E
+C
+A
+V
+Close maintenance event
+V
+C/A
+V
+Approve batch release to line
+V
+C
+A
+V
+Close shift
+A
+V
+V
+V
+Reopen historical period
+R
+R
+Edit formula registry
+C/A
+Manage devices and sensors
+V
+V
+C/A
+Master Data and Information Architecture
+The system should treat master data as the long-lived core and events as transient truth around it. That means the order of design should be: products and templates first, BOM and materials second, machine and sensor capability third, line and station topology fourth, plans and work orders fifth, then telemetry and manual events. ISA-88 supports modular product and process definitions; ISA-95 supports the interface between planning and manufacturing execution. [11]
+Cross-cutting control fields
+Every major entity and event should carry the following control columns, regardless of business purpose:
+Field
+Meaning
+Validation
+UI mapping
+DB behavior
+Audit effect
+source_tag
+AUTO_PLC, AUTO_SENSOR, MANUAL, IMPORTED, SYSTEM_CALCULATED, CORRECTED
+required enum
+read-only badge
+indexed; default by pipeline
+always logged
+status
+draft, open, approved, closed, locked, inactive
+state machine only
+status chip
+indexed
+workflow transitions logged
+version_no
+current template or formula version
+integer >=1
+version badge
+unique per parent entity
+historical compare
+effective_from / effective_to
+validity window
+non-overlap per parent
+version history UI
+time-range constraints
+critical
+created_by / updated_by
+actor identity
+FK to users
+history drawer
+immutable creator
+critical
+approved_by / approved_at
+governance checkpoint
+nullable until approval
+approval dialog
+FK + timestamp
+critical
+locked_at
+finalization timestamp
+set only by close action
+lock banner
+immutable after lock
+critical
+dedupe_key
+replay and duplicate control
+unique in ingest scope
+hidden
+unique index
+critical
+external_ref
+Excel row, PLC tag, PO number, etc.
+optional but format-checked
+trace detail
+searchable
+traceable
+attachment_ref
+image, SOP, spec, machine photo
+optional
+thumbnail or link
+blob/file pointer only
+logged on change
+Master data field matrix
+The table below is the recommended minimum field set for reusable planning and execution templates. It is intentionally opinionated: if a field influences rates, BOM demand, line compatibility, or quality logic, it belongs in master data instead of ad hoc operator notes. [14]
+Entity
+Required fields
+Validation rules
+UI mapping
+DB mapping
+Source tag
+Effect on OEE, planning, alerts, reports
+Edit and approval
+Audit behavior
+Product or SKU template
+sku_code, name_en, name_ar, family, pack size, UOM, primary image, default line group, ideal rate, nominal shift target, expected yield, expected scrap, quality checkpoints
+unique sku_code; bilingual names required; rate >0; yield 0–100%
+product list, detail, clone wizard
+products, product_versions
+MANUAL
+drives plan durations, performance denominator, dashboard grouping
+edit by planning/admin; approval required on release
+full version history
+BOM header
+product version, BOM version, recipe type, effective dates, status
+non-overlap by product; active version unique
+BOM tabs
+bom_versions
+MANUAL
+drives material readiness, shortages, variance reporting
+edit by planning/process; approval required
+versioned diff
+BOM line
+material, qty per base unit, UOM, tolerance, issue source, criticality, substitution policy
+qty >0; critical lines cannot be blank; substitutions controlled
+BOM editor grid
+bom_items
+MANUAL
+drives reservations, batch issue checks, shortage alerts
+edit open only
+line-level audit
+Material
+material_code, type ingredient/packaging/consumable/spare, name_en, name_ar, UOM, lot-tracked flag, image, min stock, lead time, active flag
+unique code; UOM required
+material master, stores detail
+materials
+MANUAL
+drives plan readiness, stores dashboards, shortage alerts
+stores/admin
+full
+Machine
+machine_code, line, station role, compatible products, default count method, ideal rate by SKU, changeover standard, cleaning standard, image or drawing
+unique code; one active station binding per line slot
+machine registry, digital twin config
+machines, machine_product_rates
+MANUAL
+drives OEE normalization, schedule validation, state displays
+engineering/admin; approval for active release
+full
+Sensor
+sensor_code, type, machine, station, location, trigger mode, debounce, scaling, threshold, stale timeout, authority level
+unique code; authority enum; stale timeout >0
+sensor config UI
+sensors, sensor_configs
+MANUAL
+drives counts, state inference, health alerts
+engineering/admin; approval for production activation
+full
+Loss code
+code, category, subcategory, bilingual labels, OEE bucket, owner dept, severity, comment rule, escalation minutes
+unique code; bucket required
+operator downtime picker
+loss_codes
+IMPORTED then MANUAL
+drives availability and Pareto
+quality or production excellence
+versioned
+Plan template
+product, target qty, line group, shift pattern, expected rate, due date logic, material policy
+qty >0; at least one line group
+planning board
+plan_templates
+MANUAL
+seeds future plans and scenario copies
+planning/manager
+full
+Logical database schema
+The database should separate reference data, event data, calculated snapshots, and integration history. That separation allows fast dashboards, safe replay, and historical reproducibility. ISA-95-style level separation also argues for distinct transaction versus master-data responsibilities. [15]
+erDiagram    USERS ||--o{ AUDIT_LOGS : creates    ROLES ||--o{ USERS : grants    DEPARTMENTS ||--o{ USERS : contains    PRODUCTS ||--o{ PRODUCT_VERSIONS : versions    PRODUCT_VERSIONS ||--o{ BOM_VERSIONS : uses    BOM_VERSIONS ||--o{ BOM_ITEMS : contains    MATERIALS ||--o{ BOM_ITEMS : referenced_by    LINES ||--o{ MACHINES : contains    MACHINES ||--o{ SENSORS : hosts    PRODUCTS ||--o{ MACHINE_PRODUCT_RATES : allowed_on    MACHINES ||--o{ MACHINE_PRODUCT_RATES : supports    SHIFTS ||--o{ WORK_ORDERS : schedules    PLANS ||--o{ WORK_ORDERS : releases    WORK_ORDERS ||--o{ PRODUCTION_FACTS : produces    WORK_ORDERS ||--o{ DOWNTIME_EVENTS : impacts    WORK_ORDERS ||--o{ QUALITY_EVENTS : impacts    MACHINES ||--o{ MACHINE_STATE_EVENTS : emits    SENSORS ||--o{ SENSOR_EVENTS : emits    DEVICE_REGISTRY ||--o{ SENSOR_EVENTS : relays    WORK_ORDERS ||--o{ MATERIAL_RESERVATIONS : requires    MATERIALS ||--o{ STOCK_MOVES : moves    WORK_ORDERS ||--o{ STOCK_MOVES : consumes    WORK_ORDERS ||--o{ OEE_SNAPSHOTS : summarizes    FORMULA_REGISTRY ||--o{ FORMULA_RESULTS : computes    IMPORT_BATCHES ||--o{ IMPORT_ROWS : contains
+Core table inventory
+Table
+Purpose
+Primary keys and indexes
+Critical relations
+Notes
+users
+identity and department assignment
+PK user_id; ix on department_id, role_id
+roles, departments
+keep auth metadata separate if external IdP
+departments
+business ownership
+PK department_id; unique code
+referenced by users, loss codes, alerts
+include bilingual names
+roles
+access model
+PK role_id; unique code
+users
+pair with permission table
+products
+durable product identity
+PK product_id; unique sku_code
+versions, plans, work orders
+never hard delete
+product_versions
+effective dated product parameters
+PK product_version_id; uniq (product_id, version_no)
+BOM, rates
+controls formulas and reports
+bom_versions
+active recipe or packing composition
+PK bom_version_id; uniq active window
+items
+allows re-plans with historical fidelity
+bom_items
+ingredients and packaging details
+PK bom_item_id; ix material_id
+materials
+include staging step and issue dept
+materials
+ingredients, packaging, consumables, spares
+PK material_id; unique material_code
+BOM, stock
+include category and lot-tracking flag
+lines
+logical production lines
+PK line_id
+machines, plans
+includes sequence and display order
+machines
+machines and stations
+PK machine_id; unique machine_code
+lines, rates, sensors
+include station role and image
+machine_product_rates
+SKU-specific machine capability
+PK composite or surrogate; ix (machine_id, product_id)
+machines, products
+ideal rate, min rate, setup time
+sensors
+logical sensors
+PK sensor_id; unique sensor_code
+machine
+current active config FK
+sensor_configs
+effective-dated sensor behavior
+PK sensor_config_id; ix active by sensor
+sensors
+debounce, stale timeout, authority level
+device_registry
+edge gateways and industrial PCs
+PK device_id; unique serial
+sensor events, health
+heartbeat and firmware fields
+plans
+future targets and allocations
+PK plan_id; ix status, due_at
+products, lines
+versioned revisions
+plan_material_requirements
+exploded requirements from BOM
+PK plan_mat_req_id
+plans, materials
+stores shortage status
+work_orders
+executable order instance
+PK wo_id; ix on plan_id, status, shift_id
+plans, production, stock
+one plan may create many WOs
+shifts
+calendarized shifts
+PK shift_id; unique (line_id, date, shift_code)
+work orders
+include local and UTC times
+machine_state_events
+append-only state timeline
+PK event_id; unique dedupe_key
+machines, work orders
+no in-place edits
+sensor_events
+raw and normalized pulses or analog values
+PK sensor_event_id; unique dedupe_key
+sensors, devices
+store raw and interpreted payload
+production_facts
+counts per machine and interval
+PK fact_id; uniq by bucket or event
+work orders, machines
+aggregate from raw if needed
+downtime_events
+coded stoppages and waiting periods
+PK dt_id; ix loss_code_id, machine_id, open_flag
+work orders, machines
+append-only + closure record
+quality_events
+rejects, holds, defects, rework
+PK qe_id; ix reason and status
+work orders
+separate from OEE snapshots
+stock_moves
+all inventory movements
+PK move_id; ix material_id, from_loc, to_loc, wo_id
+materials, work orders
+supports purchase→store→prep→line→FG
+material_reservations
+plan and WO commitments
+PK reservation_id; ix plan_id, material_id
+plans
+reservation and shortage state
+oee_snapshots
+persisted KPI snapshots
+PK snapshot_id; ix wo_id, shift_id, machine_id
+work orders
+keep provisional vs final flags
+formula_registry
+governed calculation definitions
+PK formula_id; uniq active metric version
+formula results
+effective-dated
+formula_results
+explainable calculation records
+PK result_id; ix metric and context
+formula registry
+persistent if audit requires
+alerts
+live and historical alerts
+PK alert_id; ix severity, status
+users, lines, machines
+supports escalation chains
+audit_logs
+who changed what
+PK audit_id; ix entity, actor, time
+all tables by polymorphic reference
+immutable
+import_batches / import_rows
+Excel lineage
+PKs; ix batch status
+imported entities
+row-level reconciliation
+A practical design choice is to keep immutable append-only event tables for telemetry and use explicit correction records rather than editing historical raw events in place. That supports replay, reconciliation, and blame-free retrospectives. Where business users must correct a past truth, the correction should land in a separate table or versioned row linked to the original event. This approach also matches the need for parity tests against historical spreadsheets. [16]
+Automation, Events, and Calculation Semantics
+The automation architecture should be built around two assumptions: first, the plant will have mixed asset maturity, with some machines exposing rich controller data and some stations needing auxiliary sensors or manual entry; second, replay and conflict resolution are normal, not abnormal. OPC UA is suitable for rich controller and industrial-PC integration because it includes a security model, sessions, subscriptions, information modeling, and auditing. MQTT 5 is suitable for lightweight gateway-to-platform messaging because it decouples producers and consumers and provides QoS choices. Security guidance for OT environments consistently favors segmentation, controlled intermediaries, and preserving safety and reliability over “IT-style” centralization. [17]
+Sensor and PLC architecture
+Layer
+Recommended design
+Validation and dedupe
+UI mapping
+DB mapping
+Effect on OEE, planning, alerts, reports
+Edit and approval
+Audit behavior
+PLC or machine controller
+expose state, count, speed, alarm, mode, lot context via OPC UA or vendor driver
+source timestamp, sequence number, gateway dedupe_key
+device health + machine detail
+machine_state_events, production_facts
+core availability and performance input
+not user-editable
+raw event immutable
+Auxiliary sensor
+photoeye, counter, reject sensor, jam sensor, motion sensor, level, weight trigger
+debounce, stale timeout, authority rule, conflict threshold
+sensor health, config UI
+sensor_events, sensor_configs
+closes automation gaps, can validate counts
+engineering can reconfigure prospectively
+config changes audited
+Edge gateway
+local buffer, OPC client, MQTT publisher, device heartbeats
+queue idempotency, offline buffer, retry
+device monitor
+device_registry, edge_sync_queue if used
+protects continuity during outages
+admin only
+heartbeat and config logs
+App ingest
+event normalization and context binding
+reject missing machine, out-of-window time, invalid schema
+import/integration console
+normalized event tables
+feeds dashboards and alerts
+no business edits
+immutable ingestion log
+Manual overlay
+operator and supervisor forms for coded truth
+cross-check with machine state and count rules
+tablet and desktop forms
+downtime, quality, corrections
+fills semantic gaps Excel previously handled
+permission-bound
+full
+Sensor inventory and KPI impact
+Sensor type
+Typical station use
+Business meaning
+KPI effect
+Conflict rule
+Photoelectric product pass
+filler outfeed, pack infeed
+unit or pack count
+performance, plan progress
+secondary to PLC unless PLC unavailable
+Reject diverter sensor
+inspection or rejection station
+auto reject pulse
+quality, reject alerts
+compare to manual reject reason totals
+Conveyor motion sensor
+transfer between stations
+running vs blocked vs starved
+availability and bottleneck inference
+if motion exists while PLC says stop, raise conflict
+Cap presence sensor
+capping station
+cap presence miss
+quality and alarm
+quality event if repeated
+Label sensor
+packaging station
+label miss or double feed
+quality and slow-speed loss
+maintenance if recurring
+Weight or checkweigher trigger
+finish pack
+pack present / out-of-spec
+quality, hold routing
+quality authority over final disposition
+Level sensor
+ingredient tank
+bulk availability
+plan readiness, line starvation alert
+advisory unless tied to automated batch
+Proximity or end-stop
+jam or home position
+cycle completion or jam
+performance and fault state
+can override microstop detection only if approved
+Current or vibration sensor
+machine health
+asset condition signal
+maintenance alerting, not direct OEE truth
+advisory only
+Door or guard switch
+guarded machinery
+safety-induced stop
+availability loss category
+cannot be user-overridden
+Input matrix
+This is the central control surface for the system. Every input must answer the same questions: what created it, where does it land, how is it validated, what can it change, and who can revise it later. [18]
+Input
+Source tag
+Validation and dedupe
+UI mapping
+DB mapping
+Effect on OEE, planning, alerts, reports
+Edit and approval
+Audit behavior
+Machine running state
+AUTO_PLC
+valid enum, sequence ordered, dedupe by gateway key
+digital twin state
+machine_state_events
+availability, live boards, bottleneck views
+no manual edit; supervisor can add corrective annotation only
+immutable raw
+Count increment
+AUTO_PLC or AUTO_SENSOR
+monotonic per context, dedupe key, stale check
+live counters
+production_facts or sensor_events
+performance, target progress
+no direct edit; discrepancy workflow only
+raw + corrected lineage
+Downtime code
+MANUAL
+must match open stop or retroactive rule; mandatory for thresholded stops
+downtime picker
+downtime_events
+availability, Pareto, alerts, reports
+operator create; supervisor edit until lock
+full
+Reject quantity
+MANUAL or AUTO_SENSOR
+cannot exceed total count; reason mandatory
+quality entry
+quality_events
+quality factor, defect trend
+quality approves final disposition
+full
+Shift close
+MANUAL
+completeness checks; open events must resolve
+shift cockpit
+shifts, derived locks
+finalizes snapshots and exports
+supervisor approve; manager reopen
+critical
+Excel line row import
+IMPORTED
+mapping schema, row checksum, duplicate row guard
+import console
+import_batches, destination tables
+historical reporting and parity test only
+admin + business owner signoff
+batch and row lineage
+Formula result
+SYSTEM_CALCULATED
+registry version, input completeness, rounding rule
+KPI tiles, explain drawer
+formula_results, oee_snapshots
+dashboards, plan-vs-actual, reports
+never direct edit; correction through inputs or override policy
+formula trace
+Historical correction
+CORRECTED
+reason mandatory, permission required, link original row
+correction dialog
+correction tables or versioned rows
+revised report outputs, audit reports
+manager approval
+full old/new trail
+Machine states and event model
+OEE accuracy depends on a state taxonomy that cleanly separates long stops from microstops, true starvation from blocked downstream, and planned changeover from unplanned faults. OEE guidance emphasizes that downtime and small stops must be consistently distinguished, because the distinction changes whether a loss lands in Availability or Performance. [19]
+Machine state
+Detection rule
+OEE bucket
+UI color
+Alert behavior
+Notes
+Running
+speed or cycle > threshold and order active
+productive
+green
+none
+live count increments
+Idle ready
+powered and enabled, no production, order active
+availability loss after configured delay
+blue
+supervisor reminder
+often planned within short window
+Microstop
+stop < threshold, auto-resume
+performance loss
+amber
+no alert unless repeated
+derived from short state events
+Unplanned stop
+stop >= threshold without planned code
+availability loss
+red
+maintenance or supervisor alert
+requires code or exception
+Planned stop
+planned maintenance, meal break, CIP, planned setup
+excluded or planned loss by policy
+gray
+informational
+formula policy determines denominator
+Changeover
+approved product or format change
+availability planned loss
+purple
+if exceeds plan, escalate
+measured separately
+Waiting material
+no input material at station
+availability or planning risk
+orange
+stores and supervisor
+key interdepartment handoff metric
+Waiting quality
+blocked pending inspection/release
+availability
+amber-red
+quality alert
+important at quarantine gates
+Blocked downstream
+cannot discharge product
+availability or line-balance metric
+orange-red
+supervisor
+critical for digital twin bottleneck
+Starved upstream
+no incoming prepared or intermediate product
+availability or planning
+orange
+prep or stores
+especially between prep and filler
+Fault maintenance
+machine alarm or maintenance stop
+availability
+dark red
+maintenance high severity
+MTBF/MTTR driver
+Manual mode
+local/manual intervention
+excluded or monitored
+indigo
+supervisor if extended
+must prevent command conflicts
+Offline signal lost
+heartbeat missing or stale
+data quality loss and alert
+black
+IT/engineering alert
+freeze last-good with stale badge
+No order
+machine available but no released work order
+not in OEE denominator or schedule loss
+slate
+planning alert if calendar active
+separate from operational loss
+Downtime and loss taxonomy
+The existing workbook’s coded bilingual taxonomy should be imported and preserved as seed master data rather than replaced. The operational requirement is not to invent better labels in a workshop; it is to make the coded dictionary easy to use on the line with favorites, recent codes, top-used codes by machine, and mandatory comment rules only where they actually improve signal quality. fileciteturn0file0
+Code family
+Example English label
+Arabic field required
+Owner department
+OEE effect
+Comment rule
+MF-*
+mechanical fault
+نعم
+Maintenance
+availability loss
+mandatory if duration > 10 min
+ADJ-*
+adjustment or tuning
+نعم
+Production
+availability or performance
+mandatory after repeat count threshold
+Q-*
+quality hold or reject issue
+نعم
+Quality
+quality loss and possible stop
+always mandatory
+SU-*
+setup or changeover
+نعم
+Production
+planned availability loss
+optional unless over planned time
+UT-*
+utilities loss
+نعم
+Utilities or maintenance
+availability
+always mandatory
+MIN-*
+minor stop
+نعم
+Production
+performance
+no free text unless escalated
+WH-*
+waiting warehouse or stores
+نعم
+Stores
+availability and planning risk
+mandatory
+PL-*
+no order / planning / schedule gap
+نعم
+Planning
+schedule loss
+mandatory
+The best operator UX is a two-step picker. First select a major family using oversized buttons or tiles with bilingual labels and icons. Second select a short filtered subcode list, defaulted by machine and time of day, with “recent” and “favorites” at the top. If a stop exceeds a configured threshold and no code has been entered, the system should keep the state as “uncoded stop” and escalate it to the supervisor queue rather than silently assigning a generic code. That improves completeness without rewarding bad coding behavior. [19]
+Formula engine and Excel parity rules
+The formula engine should be explicit, versioned, inspectable, and testable. OEE best practice is to compute Availability from Run Time over Planned Production Time, Performance from Ideal Cycle Time times Total Count over Run Time, and Quality from Good Count over Total Count, then multiply the three factors. The Excel-parity goal is not “use the same cell references”; it is “produce the same business meaning and the same output for the same inputs, with traceable rounding and versioned exceptions.” [20]
+Metric
+Formula
+Inputs
+Trigger
+Persistence
+Rounding
+Edit and approval
+Availability
+run_time / planned_production_time
+planned time, coded stop time, exclusion policy
+on state close, shift close, recalculation
+snapshot + explain result
+4 dp internal, 2 dp display
+no direct edit
+Performance
+(ideal_cycle_time * total_count) / run_time or actual_rate / ideal_rate
+ideal rate by SKU-machine, count, run time
+on count update
+snapshot + explain result
+same
+no direct edit
+Quality
+good_count / total_count
+count, reject, hold or rework policy
+on quality event
+snapshot + explain result
+same
+no direct edit
+OEE
+availability * performance * quality
+above factors
+anytime factor changes
+snapshot + explain result
+same
+no direct edit
+Plan attainment
+actual_qty / planned_qty
+plan, good count
+on count update
+live + periodic snapshot
+2 dp
+no direct edit
+Required remaining rate
+remaining_qty / remaining_available_time
+plan qty, actual qty, time left, calendar
+periodic and on stop change
+live metric
+2 dp
+no direct edit
+Predicted completion
+now + remaining_qty / effective_current_rate
+plan, current effective rate, planned windows
+periodic
+live + event log if risk changes
+timestamp
+no direct edit
+Material sufficiency
+available_or_reserved / required_remaining
+BOM, issued stock, consumed qty
+on stock move or count update
+live + shortage state
+ratio + status
+no direct edit
+Batch or prep yield
+released_bulk / theoretical_bulk
+prep issue and output
+on prep completion
+snapshot
+2 dp
+quality or prep review
+Formula dependency matrix
+Output
+Master data dependencies
+Event dependencies
+Policy dependencies
+Availability
+machine stop threshold, planned stop classification
+state timeline, downtime codes
+inclusion or exclusion rules by state
+Performance
+ideal rate by machine and SKU
+count events, run time
+microstop threshold, speed-cap policy
+Quality
+reject classification map
+quality events, good count
+hold and rework treatment
+Plan attainment
+product, calendar, target qty
+counts, work order status
+carryover policy across shifts
+Material sufficiency
+BOM, substitutions, UOM conversions
+reservations, issues, returns
+shortage threshold and reservation strategy
+Predicted completion
+rate assumptions, shift calendar
+live speed, stops, counts
+pace aggregation window
+Excel parity test protocol
+Import the historical workbook row-by-row into a staging schema.
+Parse every detectable formula and store it in a parity registry with workbook sheet, row, column, and computed value.
+Recompute each metric in the system from raw imported inputs using the governed formula registry.
+Compare workbook output to system output with an allowed tolerance per metric, usually zero for counts and a fixed decimal tolerance for percentages.
+Publish a discrepancy report by sheet, machine, shift, SKU, and formula version; cut over only after business signoff. [21]
+API and event contract pattern
+A defensible pattern is REST for command-side actions, event topics for telemetry, and SSE for read-mostly dashboard streaming. The web platform standards distinguish SSE as one-way server push and WebSocket as bidirectional communication. For this system, SSE is enough for dashboards, alert lists, and KPI cards; WebSocket should be reserved for collaborative or duplex interactions such as live digital twin annotations, if needed at all. [22]
+Contract
+Recommended path or topic
+Idempotency
+Side effect
+Ingest machine state
+POST /api/v1/events/machine-state or mqtt/plant/{line}/{machine}/state
+required dedupe_key
+append event, update live cache
+Ingest sensor pulse
+POST /api/v1/events/sensor or mqtt/plant/{sensor}/pulse
+required dedupe_key
+append raw event, interpret count or state
+Create downtime
+POST /api/v1/downtime
+client idempotency key
+open coded stop
+Close downtime
+POST /api/v1/downtime/{id}/close
+unique close token
+finalize duration
+Log quality event
+POST /api/v1/quality-events
+client idempotency key
+update quality metrics
+Release plan to work order
+POST /api/v1/plans/{id}/release
+unique plan op key
+create WO and material reservations
+Shift close
+POST /api/v1/shifts/{id}/close
+one successful close only
+lock data and persist final snapshots
+SSE live KPIs
+GET /api/v1/streams/kpis
+n/a
+pushes server-generated updates
+Excel import
+POST /api/v1/imports/excel
+file checksum and batch key
+staging + validation
+Excel export
+POST /api/v1/exports
+request hash for cache reuse
+generated workbook
+Planning, Materials, and Plan-vs-Actual Control
+Planning should be treated as an executable commitment, not as a note attached to a work order. ISA-95 exists precisely to define the interface between business-level intent and manufacturing-level execution; in this factory, the most important expressions of that interface are product targets, line allocations, material reservations, and readiness checks. [15]
+Planning field matrix
+Field
+Meaning
+Validation
+UI mapping
+DB mapping
+Source tag
+Effect on OEE, planning, alerts, reports
+Edit and approval
+Audit behavior
+plan_id
+durable plan identity
+unique
+plan board
+plans
+MANUAL
+report traceability
+immutable
+full
+product_version_id
+exact product rules for this plan
+active version required
+plan creation and clone
+plans
+MANUAL
+fixes BOM, rate, quality assumptions
+controlled by planning
+full
+target_qty
+target achievement quantity
+>0
+planner form
+plans
+MANUAL
+target attainment and material explosion
+planning edit until release
+full
+planned_start_at / planned_end_at
+intended window
+end > start
+Gantt and calendar
+plans
+MANUAL
+schedule adherence, required rate
+planning; manager for forced overlap
+full
+line_id / machine_group
+assigned capacity
+compatibility required
+schedule board
+plans
+MANUAL
+availability assumptions, conflict alerting
+planning
+full
+shift_pattern
+specific shifts to use
+must fit calendar
+shift assignment UI
+child table or JSON
+MANUAL
+pacing and backlog views
+planning
+full
+expected_rate
+expected effective throughput
+>0 and <= capability
+plan detail
+plans
+MANUAL or derived
+required rate and completion prediction
+planning or derived from template
+full
+expected_yield
+expected good output fraction
+0–100%
+plan assumptions
+plans
+MANUAL or derived
+material sufficiency, quality risk
+planning and quality
+full
+material_policy
+reserve-all, reserve-critical, advisory
+enum
+plan settings
+plans
+MANUAL
+shortage logic
+planning or stores approval
+full
+readiness_status
+ready, warning, blocked
+system derived
+plan board chip
+plans
+SYSTEM_CALCULATED
+go/no-go and alerts
+not edited directly
+trace
+revision_reason
+why plan changed
+mandatory on revision
+revision dialog
+plan_revisions
+MANUAL
+governance reporting
+planner; manager approve material changes
+full
+Material flow and reservation model
+The system should explicitly model the physical handoff chain requested by the user: purchasing acknowledges supply, stores receive and reserve, stores issue ingredients to preparation and packaging materials to line-side use, preparation converts ingredients into prepared bulk, filling and packing consume bulk plus packaging components, final packaging and cartoning complete the product, and finished-goods stores receive achieved output. That chain should be visible in one live plan-vs-materials screen and also reconstructable from stock movements later. ISA-95-style interfaces and BOM-driven requirements make this chain tractable. [23]
+flowchart LR    P[Purchase orders / expected receipts] --> S[Stores receipt and lot assignment]    S --> R[Reservations against plans]    R --> I[Issue ingredients to preparation]    R --> M[Issue bottle cap label carton shrink to line]    I --> B[Prepared bulk batch]    B --> F[Filling and capping]    M --> F    F --> K[Packaging cartoning shrink]    K --> G[Finished goods receipt]
+Material readiness matrix
+Readiness dimension
+Rule
+Status logic
+Alert target
+Planning effect
+Critical ingredients reserved
+all critical BOM lines reserved for planned batch
+missing any critical line = BLOCKED
+stores, planning, prep
+cannot release or start
+Packaging materials reserved
+bottle, cap, label, carton, shrink available
+partial = WARNING; none = BLOCKED
+stores, packaging, line supervisor
+can release only with override
+Prepared bulk available
+prep batch completed and approved
+if not ready by start minus lead time = AT_RISK
+prep, planning
+shifts start risk
+Machine compatibility
+active machine-product rate exists
+missing mapping = BLOCKED
+planning, engineering
+no schedule release
+Maintenance availability
+no blocking PM or open critical fault
+critical block = BLOCKED
+maintenance, planning
+must reschedule
+Quality release
+no hold on material, product, or bulk
+hold = BLOCKED
+quality, planning
+no issue to line
+Plan-vs-actual and risk matrix
+Metric
+Recommended formula
+Trigger
+Alert condition
+Attainment %
+actual_good / plan_target
+count update
+below pace curve
+Schedule variance
+actual_start - planned_start, predicted_end - planned_end
+start and periodic
+any positive variance beyond threshold
+Required remaining rate
+remaining_qty / remaining_available_time
+periodic
+exceeds configured max feasible rate
+Material burn variance
+actual_consumption - theoretical_consumption
+stock move or issue post
+exceeds tolerance
+Downtime drag
+actual_stop_minutes - assumed_stop_minutes
+on stop close
+risk score increase
+Quality drag
+actual_reject_rate - expected_reject_rate
+on quality event
+risk score increase
+Overall plan risk
+weighted combination of pace, stops, shortages, and quality
+periodic
+AT_RISK or DELAYED
+The runtime risk model should be legible to supervisors. A good screen does not merely say “at risk.” It should say why: “You are 8,500 units behind pace because line speed is 12% below the expected rate and cap-feed stoppages have exceeded the plan by 43 minutes; remaining bottle inventory covers only 78% of the remaining target.” That directly supports action. [24]
+User Experience, Alerts, and Excel Parity
+The UI should be role-aware, scan-friendly, and bilingual. For Arabic readiness, the application should switch the document base direction with dir, preserve strong LTR formatting for codes, numbers, dates, and formulas inside RTL views, and maintain separate localized labels rather than machine-translating master data at render time. W3C guidance is clear that bidi handling needs explicit structure, especially where Arabic text is mixed with Latin codes and numeric expressions. [25]
+App shell and screen catalog
+A practical application shell has a role-aware landing page, global context selectors for site, line, shift, and date, a persistent alert center, a connection and stale-data indicator, and an AI drawer exposed on every analytical screen but not on the smallest operator forms. The 28-screen minimum below is realistic. [26]
+Screen
+Primary users
+Core components
+Validation or live behavior
+Login
+all
+auth, language switch, site selector
+lockout and MFA policy
+Home dashboard
+role-specific
+KPI tiles, alerts, tasks
+refresh live
+Plant overview
+managers
+line tiles, OEE summary, attainment
+live every few seconds
+Line overview
+supervisors
+line KPI strip, orders, losses
+shift-scoped
+Live production board
+operators, supervisors
+count, rate, target, stop timer
+live via SSE
+Digital twin
+supervisors, engineering
+station states, bottlenecks, side panel
+stale badge if no heartbeat
+Machine detail
+maintenance, supervisors
+state timeline, speeds, recent losses
+event drill-down
+Shift cockpit
+supervisors
+open tasks, approvals, close shift
+completeness checks
+Downtime entry
+operators
+family tiles, subcode list, comment
+mandatory rules
+Missed downtime recovery
+supervisors
+uncoded stops queue
+requires reason
+Quality and reject entry
+operators, quality
+reject qty, reason, hold or rework
+cross-check count limits
+Work order management
+planning, supervisors
+release, start, pause, close
+readiness checks
+Plan board
+planning
+calendar, line allocation, conflicts
+overlap and capacity validation
+Material readiness
+planning, stores, prep
+reservations, shortages, expected receipts
+dynamic status
+Stores issue
+stores
+reserve, issue, receive, return
+lot rules
+Preparation batch
+prep
+weigh, issue, batch start/finish
+recipe and yield checks
+Packaging floor board
+packaging
+pack counts, shortages, manual tasks
+line-side material alerts
+Finished goods receipt
+FG stores
+achievement receipt, lot and pallet
+discrepancy rules
+Maintenance console
+maintenance
+open faults, MTTR, close action
+root-cause mandatory
+Alert center
+all
+open, assigned, escalated alerts
+ack and SLA timer
+Historical analytics
+analysts, managers
+trends, Pareto, compare periods
+based on snapshots
+OEE deep dive
+supervisors, managers
+A/P/Q, formulas, reasons
+explain-this-metric drawer
+Loss Pareto
+operations excellence
+downtime and quality Pareto
+filter by line, SKU, shift
+Machine timeline
+maintenance
+Gantt of states
+append-only history
+Sensor registry
+engineering
+health, config, last signal
+config approval
+Excel import and reconciliation
+admin, business owners
+mapping, preview, discrepancies
+batch signoff
+Audit viewer
+managers, admin
+entity trace, old/new values
+locked read-only
+Admin and configuration
+admin
+roles, formulas, thresholds, labels
+approval workflows
+AI assistant panel
+all analytical roles
+chat, explain, summarize, compare
+citations and confidence
+Widget library by role
+Role
+Default widgets
+Operator
+current work order, good count, target vs actual bar, open stop timer, top downtime tiles, quality prompt
+Supervisor
+line OEE, open alerts, uncoded stop queue, pace risk, bottleneck card, material readiness card
+Planning
+plan board, line occupancy, shortages by plan, predicted completion, overdue starts
+Stores
+reservations due today, shortages, inbound receipts, issues pending, line-side depletion
+Preparation
+batch queue, ingredient issue status, yield vs target, release blockers
+Packaging
+pack completion, carton or label shortage, manual packing productivity
+Quality
+defect Pareto, holds, pending release, reject spikes
+Maintenance
+open faults, MTTR and MTBF, recurring codes, stale sensors, blocked PMs
+Manager
+plant OEE, attainment, total loss breakdown, service level, data completeness
+Alert and escalation matrix
+Alert
+Trigger
+Severity
+Recipients
+Auto-close
+Audit
+Uncoded stop
+stop threshold exceeded without code
+medium
+operator then supervisor
+when coded
+yes
+Critical material shortage
+required critical BOM line unavailable before start
+high
+stores, planning, supervisor
+on reservation and confirmation
+yes
+Runtime depletion risk
+projected material remaining < target remaining requirement
+high
+stores, supervisor
+when restocked or order closed
+yes
+Sensor stale
+no heartbeat or event beyond timeout
+medium
+engineering, maintenance
+on heartbeat recovery
+yes
+PLC–sensor count mismatch
+variance exceeds machine tolerance
+medium
+supervisor, engineering
+after approval or reset window
+yes
+Pace risk
+required remaining rate exceeds capability
+medium
+supervisor, planning
+if back on track
+yes
+Delayed start
+actual start exceeds threshold past planned start
+medium
+planning, supervisor
+on start or replan
+yes
+Reject spike
+rolling reject rate exceeds threshold
+high
+quality, supervisor
+after sustained recovery
+yes
+Recurrent fault
+same loss code repeats within window
+high
+maintenance
+after root-cause closure
+yes
+Locked-period edit request
+historical correction requested
+medium
+manager, admin
+on approve or reject
+yes
+Manual input UX and missing-input management
+Manual entry should be optimized for the device and the role. Operator screens should use large targets, minimal typing, recent selections, and automatic context. Supervisor screens should emphasize completion, repair of missing semantics, and exception approval. Quality and maintenance screens should support richer forms because those entries often become part of defensible root cause and release decisions. Missing input management should be a first-class workflow, not a background “data quality report.” [27]
+Form
+Who enters
+Critical validation
+Lock rule
+Downtime code
+operator, supervisor fallback
+open stop exists or retroactive reason supplied
+locked at shift close
+Reject and defect
+operator then quality finalization
+reject <= total produced; reason mandatory
+locked at quality approval or shift close
+Material issue confirmation
+stores, prep, line-side stores
+issue qty <= reserved and stock available
+locked at issue posting
+Preparation batch completion
+prep
+actual ingredient issue captured; yield and deviation fields checked
+locked at release
+Maintenance closure
+maintenance
+root cause and action mandatory for fault states
+locked on close
+Shift handover note
+supervisor
+required if open alerts or uncoded events remain
+locked at next shift approval
+Historical correction
+manager
+reason mandatory, original reference mandatory
+locked after approval
+Excel import, export, and reconciliation
+Gemini-scale long context is useful for document understanding, but live manufacturing truth should still land in normalized tables. The workbook can be imported as structured history, mapped to master data, and used for parity testing. Google’s model docs encourage long-context use and caching for large documents, but that does not change the architectural rule that Excel is not the live database. [28]
+Function
+Recommended UI
+Key controls
+Output
+Excel import
+upload + mapping preview + row errors
+template library, checksum, duplicate detection
+staging batch
+Formula parity
+side-by-side compare
+tolerance by metric, highlight mismatches
+discrepancy report
+Historical freeze
+post-import signoff
+business owner approval
+locked baseline
+Transaction export
+filter-driven export builder
+by date, shift, line, SKU, code, material
+xlsx raw export
+Management export
+workbook-style report builder
+prebuilt layouts matching current sheets
+xlsx summary
+Audit export
+entity history export
+user/date/entity filters
+xlsx or csv
+Audit, edit, approval, and locking rules
+NIST OT guidance and general ICS practice both argue for strong accountability and minimal uncontrolled change. The practical implication is that only open operational records should be editable, only supervisors and specialists should close semantic gaps, and locked historical periods should reopen only under explicit approval with mandatory reason capture. [29]
+Record type
+Editable while open
+Final lock point
+Reopen authority
+Live downtime
+yes, supervisor can correct
+shift close
+manager
+Quality event
+yes until quality approval
+quality approval or shift close
+quality manager
+Material issue
+no quantity edit after posting; use reversal
+posting
+stores manager
+Preparation batch
+open until release
+release to line
+process owner
+OEE snapshot
+never directly
+final snapshot write
+not reopened directly; inputs corrected instead
+Formula config
+draft only
+approval and effective date
+admin with governance
+Imported history
+never after freeze
+freeze signoff
+admin + business owner
+AI assistant capabilities and guardrails
+The embedded assistant should explain, summarize, compare, and suggest. It should not silently modify truth, infer approvals, or classify downtime without user confirmation. The correct guardrail is “explainable assistance, governed action.” That is consistent with using AI for higher-order synthesis while keeping controlled state transitions in human-approved workflows. [30]
+Allowed
+Forbidden
+Approval required
+explain current OEE and the biggest loss driver
+editing production, material, or quality records directly
+creating corrections from AI recommendation
+summarize shift performance
+backdating downtime or stock moves
+releasing a blocked plan
+compare lines or SKUs
+changing formula definitions
+overriding quality hold
+highlight anomalies and recurring faults
+silently reclassifying loss codes
+sending external notifications with new recipients
+draft shift reports and handover text
+acting as system of record
+closing work order or shift
+Microcopy starter examples
+Context
+English
+Arabic
+Missing downtime code
+“Machine is stopped. Please select a reason to keep OEE accurate.”
+"الماكينة متوقفة. اختر سبب التوقف للحفاظ على دقة مؤشر الكفاءة."
+Material risk
+“Bottle stock may not cover the remaining target.”
+"مخزون الزجاجات قد لا يكفي لتغطية الهدف المتبقي."
+Locked record
+“This shift is closed. Reopening requires manager approval.”
+"تم إغلاق هذه الوردية. إعادة الفتح تحتاج إلى موافقة المدير."
+Quality hold
+“Units placed on hold are excluded from Good Count until released.”
+"الوحدات الموضوعة على الحجز لا تُحسب ضمن المنتج الجيد حتى يتم الإفراج عنها."
+Sensor stale
+“No signal received from this sensor within the expected window.”
+"لم يتم استقبال أي إشارة من هذا الحساس خلال الفترة المتوقعة."
+AI Build Workflow for Google AI Studio, Antigravity, and Codex
+The user asked for both a step-by-step prompt sequence and a one-shot master prompt. The best recommendation is still chunked execution, even though modern Gemini and Codex models support very large contexts. Google’s current Gemini 3.1 Pro documentation states a 1M input context window and up to 64k output tokens, recommends the default temperature of 1.0, supports context caching, and encourages clear, concise instructions rather than baroque prompt scaffolds. OpenAI’s current Codex guidance emphasizes project-level AGENTS.md, compaction for long-running threads, and selective use of subagents because parallel agents consume more tokens. Google Antigravity positions workspaces, rules, skills, and knowledge extraction as its state-preservation mechanisms, and Google’s public notes say usage is correlated with “work done,” with higher paid-tier limits refreshing every five hours. [31]
+Recommended settings and handling notes
+Platform
+Model recommendation
+Temperature
+State preservation
+Token handling
+Best use
+Google AI Studio / Gemini API
+Gemini 3.1 Pro for architecture, Gemini 3 Flash for extraction and drafting
+1.0
+chat history + context caching + Files API
+keep each prompt under practical reviewable size; exploit 1M input but do not aim for 64k output in one turn
+research, architecture, synthesis
+Google Antigravity
+reasoning model in workspace plus rules and knowledge
+platform default
+workspace files, rules, skills, knowledge items
+prefer smaller milestone tasks because quota tracks work done
+agentic repo or document workflows
+Codex
+GPT-5.4 for broad coding and agentic work; GPT-5-Codex for coding-focused runs
+default unless task-specific
+AGENTS.md + compaction + optional subagents
+compact long threads and split tasks by artifact
+implementation and code generation
+Six ready-to-send prompts
+Each prompt below is intentionally narrow enough to avoid silent summarization, but broad enough to keep internal consistency across turns. The transition instruction at the top of prompts two through six is important: it tells the model to extend rather than redesign.
+Prompt one
+You are designing a complete on-prem-capable MES/OEE + Planning + Materials + Sensors + Excel-parity system for a cosmetics/filling/packing factory.Treat this as a real implementation blueprint, not a concept note.In this step, produce only the foundation:- system vision- operating model- department model- full user roles and responsibilities- value-stream flow from planning to purchasing to stores to ingredient prep to line execution to packaging to finished goods store- main modules- master data categories- top-level entity list- key assumptions and boundariesImportant rules:- use one consistent naming scheme for entities and fields- separate business roles from software modules- include stores, purchasing, ingredients/preparation, packing, packaging, maintenance, quality, planning, managers, admin- include bilingual Arabic/English readiness- include what each department receives, creates, approves, and hands off- include what each role can and cannot editOutput required:- executive summary- role matrix- department handoff matrix- top-level entity map- one mermaid flow diagram- explicit list of source tags:  AUTO_PLC, AUTO_SENSOR, MANUAL, IMPORTED, SYSTEM_CALCULATED, CORRECTEDDo not design detailed UI yet.Do not design formulas yet.Do not rename things mid-answer.
+Prompt two
+Continue from the previous output.Use the previous entities, roles, and naming as source of truth.Do not redesign what already exists. Extend it consistently.In this step, design only:- master data in full detail- product/SKU templates- product versions and copy/clone workflow- BOM and BOM versions- materials and ingredient master data- machine master data- machine-product capability mapping- sensor registry and attachment/image support- line/station topology- document or file attachment model- edit rules, approval rules, versioning, locking, auditFor each entity include:- field-level definitions- validation rules- UI mapping- DB mapping- source tag- effect on OEE/planning/alerts/reports- edit/approval rules- audit behaviorOutput required:- table of master data fields- versioning strategy- clone/copy workflow- product-machine compatibility matrix- material category matrix- sensor inventory template
+Prompt three
+Continue from the previous outputs.Reuse the same fields and entities. Do not rename them.In this step, design only:- logical database schema- tables- keys- indexes- relationships- audit fields- source fields- status fields- import lineage fields- correction lineage fields- attachment mapping- formula registry tables- snapshot tables- inventory movement tables- planning tables- work order tables- event tables- alert tablesRules:- raw events must be append-only- corrections must preserve original records- use dedupe keys for replayed edge data- support historical recalculation without silently mutating previous approved snapshotsOutput required:- DB table inventory- PK/FK/index table- recommended unique constraints- entity relationship mermaid diagram- table partitioning and retention recommendations
+Prompt four
+Continue from prior outputs.Use the existing schema and naming as source of truth.In this step, design only:- input map- AUTO_PLC inputs- AUTO_SENSOR inputs- MANUAL inputs- IMPORTED inputs- device registry- edge gateway- PLC architecture- sensor architecture- protocols and protocol choices- machine states- event model- downtime and loss code taxonomy- conflict resolution between PLC, sensor, and manual data- stale-data rules- dedupe rules- validation rules- offline/retry/store-and-forward behaviorUse official best-practice assumptions for OPC-UA, MQTT, OT segmentation, and auditability.For each input and state include:- source tag- validation- UI mapping- DB mapping- effect on OEE/planning/alerts/reports- edit/approval rules- audit behaviorOutput required:- input-to-effect matrix- sensor-to-KPI matrix- machine-state table- downtime-code taxonomy table- device and sensor health matrix
+Prompt five
+Continue from prior outputs.Reuse prior entities, DB tables, roles, and inputs exactly.In this step, design only:- formula engine- all formulas in full detail- OEE- availability- performance- quality- plan-vs-actual- material sufficiency- required remaining rate- predicted completion- yield and scrap metrics- recalculation triggers- persistence model- provisional vs final logic- rounding rules- Excel parity testing strategy- historical correction rules- planning model- scheduling model- line and shift assignment- material reservations- pre-start readiness checks- runtime plan monitoring- risk detectionOutput required:- formula dependency matrix- plan-vs-actual matrix- material readiness matrix- alert matrix- parity testing protocol- examples for one 2-day product target with shortages and downtime
+Prompt six
+Continue from prior outputs.Everything from prior steps is source of truth. Do not redefine names.In this step, design only:- complete UI/UX architecture- app shell- role-based home pages- screen catalog with 28+ screens- screen-by-screen specs- digital twin design- dashboards and widget library per role- manual-input UX per role- Excel import/export and reconciliation UI- audit viewer- AI assistant panel and guardrails- API/event contracts- SSE/WebSocket usage- deployment and on-prem architecture- security, backup, disaster recovery- phased rollout roadmap- edge cases and exception handling- microcopy in English and Arabic- self-validation checklistOutput required:- screen inventory table- role-permission matrix- alert escalation matrix- API contract table- phased rollout mermaid timeline- edge case detection and recovery table- self-validation checklist confirming all prior sections are covered
+Transition rule between steps
+After each step, ask the model for a one-page “canonical glossary” listing tables, fields, enums, and formulas that must not be renamed later. In Gemini, keep that glossary in the active conversation and also store it in context caching or a file. In Antigravity, put it in workspace knowledge or a checked-in design note. In Codex, put it in AGENTS.md or a repo-local master spec and use compaction once the conversation becomes long. This is the most effective defense against naming drift. [32]
+Single-file master prompt for one-shot use
+One-shot prompting is possible, but it is not the best operational choice because output limits, drift, and section skipping become more likely as prompt size and response ambition grow. Even with Gemini’s large input context, a 64k output ceiling means complex, exhaustive specifications are still better chunked. Use the one-shot version mainly to establish the initial backbone, then refine by section. [33]
+You are a senior manufacturing systems architect, MES/OEE consultant, OT integration architect, planning systems designer, UX architect, and AI product strategist.Design a complete implementation-ready MES/OEE + Planning + Materials + Sensors + Excel-parity platform for a cosmetics/filling/packing factory.The platform must include:- system vision and modules- department and role model including planning, purchasing, stores, ingredients/preparation, production line ops, packaging, quality, maintenance, finished goods store, managers, admin- master data: products, versions, BOM, materials, ingredients, machines, lines, stations, sensors, attachments- versioning and clone/copy workflows- logical DB schema with tables, keys, indexes, status fields, source tags, audit fields- input map for AUTO_PLC, AUTO_SENSOR, MANUAL, IMPORTED, SYSTEM_CALCULATED, CORRECTED- PLC and sensor architecture, edge gateway, device registry, config UI, health monitoring, conflict resolution- machine states and event model- downtime/loss code taxonomy with bilingual Arabic/English support and operator UX- formula engine including OEE, availability, performance, quality, plan-vs-actual, material sufficiency, required rate, predicted completion, yield, scrap- Excel parity testing and reconciliation strategy- manual input UX by role with approval and locking- planning and scheduling, target creation, line and shift assignment, material readiness, pre-start validation, runtime monitoring, risk detection- material flow from purchasing to stores to preparation to line to packaging to finished goods store- full UI/UX architecture with 28+ screens and a digital twin- dashboards and widgets by role- alerts and escalation matrix- Excel import/export UI and mapping- audit, traceability, edit/approval/locking rules- AI assistant capabilities and guardrails- API and event contract patterns with idempotency- on-prem deployment, security, backups, phased rollout, edge cases, bilingual microcopy- required matrices: input-to-effect, sensor-to-KPI, formula dependency, role-permission, plan-vs-actual, material readiness- self-validation checklistFor every major item include:- field-level definitions- validation rules- UI mapping- DB mapping- source tag- effect on OEE/planning/alerts/reports- edit and approval rules- audit behaviorRules:- do not skip sections- do not give high-level generalities- keep naming consistent- separate raw events from calculated snapshots- preserve Excel semantics but do not rely on Excel as the live transactional source after cutover- use bilingual Arabic/English labels where relevant- prefer implementation-ready tables and matrices- include mermaid diagrams where useful- include a final self-check proving all sections were covered
+Deployment, Roadmap, Exceptions, and Self-Validation
+The deployment boundary should be on-prem first, with plant services in a segmented OT-aware network zone and carefully controlled upstream connections to business IT. NIST’s OT guidance and CISA’s ICS guidance both emphasize the unique reliability and safety requirements of industrial environments and specifically call out segmentation, controlled access, and the need to avoid exposing critical systems directly. IEC 62443 is the natural longer-term governance framework for the OT security program. [34]
+Deployment pattern
+Layer
+Recommendation
+OT zone
+PLCs, machine HMIs, sensor IO, edge gateway, local historian cache if needed
+Industrial DMZ
+message broker, integration services, API gateway, update staging
+Application zone
+MES app, DB, reporting, object/file storage, export service
+Enterprise zone
+ERP bridge, SSO or directory, email or notification relays
+Backup and DR
+nightly full + intra-day incremental backups, offline restore drills, configuration export, formula registry snapshots
+Phased rollout
+gantt    title Phased rollout    dateFormat  YYYY-MM-DD    section Pilot    Master data and loss-code seed      :a1, 2026-05-01, 14d    Edge gateway and PLC or sensor ingest :a2, after a1, 14d    Core UI, OEE, downtime, quality     :a3, after a2, 21d    Excel parity and user acceptance    :a4, after a3, 14d    section Expansion    Planning and material reservations  :b1, after a4, 21d    Stores and preparation workflows    :b2, after b1, 21d    Second and third lines              :b3, after b2, 28d    section Scale    Plant-wide analytics and AI assist  :c1, after b3, 21d    ERP or external integration         :c2, after c1, 21d
+Edge cases and exception handling
+Edge case
+Detection
+Recovery
+PLC offline
+heartbeat timeout or subscription loss
+freeze last-known state with stale badge; allow manual coded continuation only with supervisor annotation
+Sensor stuck high or low
+signal pattern anomaly or no transitions
+flag as unhealthy and demote authority level
+Count conflict
+PLC–sensor or manual variance threshold
+create discrepancy task; do not overwrite raw truth
+No downtime code entered
+stop threshold exceeded uncoded
+supervisor queue and alert
+Material not ready at start
+readiness block on critical BOM line
+prevent start or require escalated override
+Machine running with no order
+count with no active order
+create orphan-production event requiring supervisor reconciliation
+Shift closes with open events
+close validation fails
+block close except manager force-close with reason
+Historical correction requested
+locked record edit attempt
+create approval task, never inline edit locked truth
+Arabic and English label mismatch
+missing translation or localization validation failure
+fall back to source language and flag localization task
+Formula config changed mid-period
+new version effective during live production
+preserve effective-dated formula usage by timestamp
+Self-validation checklist
+Check
+Status criterion
+System vision and module coverage
+all major modules explicitly defined
+Departmental role coverage
+planning, purchasing, stores, prep, line ops, packaging, quality, maintenance, FG store, managers, admin included
+Master data coverage
+products, versions, BOM, materials, machines, sensors, attachments, clone/versioning included
+Database coverage
+logical tables, keys, indexes, audit fields, relations included
+Input coverage
+AUTO_PLC, AUTO_SENSOR, MANUAL, IMPORTED, SYSTEM_CALCULATED, CORRECTED all mapped
+Sensor and PLC coverage
+protocols, device registry, health, conflict rules, config UI covered
+Machine state coverage
+state list, detection, OEE bucket, UI color, alerts included
+Downtime taxonomy coverage
+bilingual code families and UX included
+Formula coverage
+OEE and plan-vs-actual formulas defined with triggers and parity testing
+Manual input coverage
+role-based UX, validations, missing-input handling, locking included
+Planning coverage
+target model, line/shift assignment, readiness, risk and alerts included
+Material flow coverage
+purchase→stores→prep→packing→FG modeled
+UI coverage
+shell, 28 screens, widgets, digital twin included
+Alert coverage
+escalation matrix included
+Excel coverage
+import, export, reconciliation, freeze model included
+Audit and locking coverage
+rules defined
+AI coverage
+capabilities and guardrails defined
+API coverage
+command and event contracts defined
+Deployment coverage
+on-prem, security, backup, phased rollout included
+Exception handling coverage
+edge case matrix included
+Bilingual readiness
+Arabic/English microcopy and bidi notes included
+AI prompt deliverables
+six-step sequence and one-shot master prompt included
+The conclusion is straightforward: the right system is not a dashboard, not a spreadsheet replacement, and not only an MES. It is a controlled plant operating model encoded in software—one that makes departments explicit, turns every handoff into a traceable event, models plans before execution, validates materials before starts, explains calculations after the fact, and uses standards-based automation only where it actually improves reliability and accountability. The design above is implementation-ready because it starts from those operational truths rather than from generic software modules. [35]
+[1] [5] [6] [7] [11] [12] [14] [15] [23] [35] ISA-95 Standard: Enterprise-Control System Integration
+https://www.isa.org/standards-and-publications/isa-standards/isa-95-standard?utm_source=chatgpt.com
+[2] [4] [10] [20] [21] OEE Calculation: Definitions, Formulas, and Examples
+https://www.oee.com/calculating-oee/?utm_source=chatgpt.com
+[3] [8] [9] [17] [18] Unified Architecture - Landingpage
+https://opcfoundation.org/about/opc-technologies/opc-ua/?utm_source=chatgpt.com
+[13] [16] [29] [34] SP 800-82 Rev. 3, Guide to Operational Technology (OT ...
+https://csrc.nist.gov/pubs/sp/800/82/r3/final?utm_source=chatgpt.com
+[19] [27] Reduce and Avoid Machine Downtime
+https://www.vorne.com/solutions/use-cases/reduce-down-time/?utm_source=chatgpt.com
+[22] Server-sent events - Web APIs | MDN
+https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events?utm_source=chatgpt.com
+[24] OEE Glossary: Terms and Definitions
+https://www.oee.com/oee-glossary/?utm_source=chatgpt.com
+[25] [26] Structural markup and right-to-left text in HTML
+https://www.w3.org/International/questions/qa-html-dir.en.html?utm_source=chatgpt.com
+[28] Long context  |  Gemini API  |  Google AI for Developers
+https://ai.google.dev/gemini-api/docs/long-context
+[30] Structured outputs | Gemini API - Google AI for Developers
+https://ai.google.dev/gemini-api/docs/structured-output?utm_source=chatgpt.com
+[31] [33] Gemini 3 Developer Guide  |  Gemini API  |  Google AI for Developers
+https://ai.google.dev/gemini-api/docs/gemini-3
+[32] Context caching | Gemini API | Google AI for Developers
+https://ai.google.dev/gemini-api/docs/caching?utm_source=chatgpt.com

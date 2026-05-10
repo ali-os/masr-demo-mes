@@ -1,0 +1,30 @@
+{
+  "brands": [
+    "Care & More", "Foamz", "Glysolid", "Kamill", "Kasies", "Man-Zone", "Mother Naked", 
+    "Raw African", "Raxeira", "Shave Code", "Soul & More", "Trindvia", "Trio", "Trio Pro", 
+    "Vebix", "Zoria", "Illy Bubbly", "Bubblzz", "Blondy", "Braes", "Genny Bloom", "Kadico"
+  ],
+  "families": [
+    "After Shave", "Body Butter", "Body Perfume", "Conditioner", "Cream", "Deo Stick", 
+    "Facial Toner", "Facial wash", "Fiber Gel", "Hand Cream", "Hand Soap", "Lip Balm", 
+    "Lip Scrub", "Lotion", "Shampoo", "Shower Gel", "Soft", "Vaseline", "Lip Oil", 
+    "Body Scrub", "Body Splash", "Hair Mask", "Hair Serum", "Roll On", "Scrub", 
+    "Shaving Cream", "Shaving Gel", "Cologne", "Sun Cream", "Whitining Cream"
+  ],
+  "machines": [
+    "1 Nozzle Cream", "1 Nozzle Liq.", "4 Nozzle", "6 Nozzle (New)", "6 Nozzle (Old)", 
+    "8 Nozzle", "Nordon", "Rotary", "Sachet", "Techno", "Kalix", "New Kalex", "Old Kalix",
+    "Line 1 Roll On", "Line 2 Roll On", "Line Cream 1", "Line Cream 2", "Wax Line", "Elkady"
+  ],
+  "loss_categories": [
+    {"code": "MF", "nameEn": "Mechanical Fault", "nameAr": "عطل ميكانيكي"},
+    {"code": "ADJ", "nameEn": "Adjustment / Tuning", "nameAr": "ضبط ومعايرة"},
+    {"code": "SU", "nameEn": "Setup / Changeover", "nameAr": "تجهيز وتغيير"},
+    {"code": "UT", "nameEn": "Utility Loss (Power/Air)", "nameAr": "أعطال المرافق"},
+    {"code": "MIN", "nameEn": "Minor Stop", "nameAr": "توقف بسيط"},
+    {"code": "MG", "nameEn": "Management Loss", "nameAr": "أعطال إدارية"},
+    {"code": "Q", "nameEn": "Quality Issue", "nameAr": "مشكلة جودة"},
+    {"code": "WH", "nameEn": "Waiting Warehouse", "nameAr": "انتظار المستلزمات"}
+  ],
+  "uoms": ["pcs", "kg", "ml", "ton", "sachet", "tube", "jar"]
+}

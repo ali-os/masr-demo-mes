@@ -1,0 +1,33 @@
+# Next.js
+app/node_modules/
+app/.next/
+app/out/
+app/build
+app/.env
+app/.env.local
+app/.env.development.local
+app/.env.test.local
+app/.env.production.local
+
+# Prisma
+app/prisma/generated/
+app/prisma/*.db
+app/prisma/*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Misc
+*.log
+scratch/

@@ -1,0 +1,421 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum PlanStatus {
+  DRAFT
+  APPROVED
+  CLOSED
+}
+
+enum LossCategory {
+  ADJ
+  MF
+  MIN
+  UT
+  MG
+  WH
+  Q
+}
+
+enum ImportStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+// ─── Users & Auth ───────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  username     String     @unique
+  name         String
+  roleId       String
+  departmentId String
+  createdAt    DateTime   @default(now())
+
+  role         Role       @relation(fields: [roleId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id])
+  auditLogs    AuditLog[]
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  permissions Json?
+  users       User[]
+}
+
+model Department {
+  id       String @id @default(uuid())
+  code     String @unique
+  nameEn   String
+  nameAr   String
+  users    User[]
+}
+
+// ─── Product Master Data ─────────────────────────────────────────────────────
+
+model Product {
+  id              String  @id @default(uuid())
+  skuCode         String  @unique
+  nameEn          String
+  nameAr          String?
+  brand           String?
+  family          String?
+  category        String?   // Cream, Liquid, Sachet, etc.
+  volumeMl        Float?    // actual fill volume (e.g. 185 for 200ml bottle)
+  packSizeMl      Float?    // nominal pack size on label (e.g. 200)
+  uom             String    @default("pcs")
+
+  // Production Intelligence
+  templateId      String?   // Link to a reusable ProductTemplate
+  compatibleLines String[]  // enforced machine names
+  ingredientRatio Float     @default(0) // KG bulk per 1 unit produced
+
+  // Line Parameters
+  idealSpeed      Int       @default(60) // units per minute on the compatible line
+  targetOEE       Float     @default(85)
+  setupTimeMins   Int       @default(30)
+
+  // Relationships
+  template        ProductTemplate? @relation(fields: [templateId], references: [id])
+  bomItems        BomItem[]
+  monthlyPlans    MonthlyPlan[]
+  dailyEntries    DailyEntry[]
+  versions        ProductVersion[]
+  machineRates    MachineProductRate[]
+  oeeRecords      OEERecord[]
+}
+
+// Reusable configurations for Ingredients, Process, and Materials
+model ProductTemplate {
+  id              String   @id @default(uuid())
+  name            String   @unique // e.g. "Standard Roll-on 50ml"
+  category        String?  // Cream, Liquid, etc.
+  description     String?
+  
+  // Template DNA
+  ingredientRatio Float    @default(0)
+  idealSpeed      Int      @default(60)
+  targetOEE       Float    @default(85)
+  setupTimeMins   Int      @default(30)
+
+  // Relationships
+  products        Product[]
+  templateBoms    TemplateBomItem[]
+
+  versionNo       Int      @default(1)
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// BOM items attached to a template
+model TemplateBomItem {
+  id          String  @id @default(uuid())
+  templateId  String
+  itemCode    String?
+  name        String
+  category    String
+  qtyPerUnit  Float   @default(1)
+  unit        String  @default("pcs")
+
+  template    ProductTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+// BOM — packaging materials per unit produced (SKU specific)
+model BomItem {
+  id          String  @id @default(uuid())
+  productId   String
+  itemCode    String? // internal reference
+  name        String  // "Bottle 200ml White", "Red Cap 20mm", etc.
+  category    String  // Bottle | Cap | Sticker | Carton | Label | Other
+  qtyPerUnit  Float   @default(1) // how many of this item per 1 finished unit
+  unit        String  @default("pcs")
+  notes       String?
+
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ProductVersion {
+  id            String    @id @default(uuid())
+  productId     String
+  versionNo     Int
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  status        String
+
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@unique([productId, versionNo])
+}
+
+// ─── Lines & Machines ─────────────────────────────────────────────────────────
+
+model Line {
+  id          String    @id @default(uuid())
+  code        String    @unique // F1, F2, etc.
+  name        String
+  machines    Machine[]
+  monthlyPlans MonthlyPlan[]
+  dailyEntries DailyEntry[]
+  plans        Plan[]
+}
+
+model Machine {
+  id            String  @id @default(uuid())
+  machineCode   String  @unique
+  name          String
+  lineId        String
+  stationRole   String?
+  productTypes  String[] // Cream, Liquid, Roll-on — allowed categories
+
+  line           Line                 @relation(fields: [lineId], references: [id])
+  rates          MachineProductRate[]
+  sensors        Sensor[]
+  stateEvents    MachineStateEvent[]
+  downtimeEvents DowntimeEvent[]
+  productionFacts ProductionFact[]
+  oeeRecords     OEERecord[]
+}
+
+model MachineProductRate {
+  id        String  @id @default(uuid())
+  machineId String
+  productId String
+  idealRate Float
+
+  machine   Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  @@unique([machineId, productId])
+}
+
+// ─── Monthly Production Schedule (MPS) ───────────────────────────────────────
+
+model MonthlyPlan {
+  id          String    @id @default(uuid())
+  year        Int
+  month       Int       // 1–12
+  productId   String
+  lineId      String?
+  machineName String?   // filling machine name from Excel (e.g. "6 Nozzole New")
+  targetQty   Int       // total monthly target in pieces
+  bulkKg      Float     @default(0)
+  category    String?   // Cream, Liquid
+  status      PlanStatus @default(DRAFT)
+  notes       String?
+
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  line         Line?        @relation(fields: [lineId], references: [id])
+  dailyEntries DailyEntry[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@unique([year, month, productId])
+}
+
+// ─── Daily Shift Production Entry ─────────────────────────────────────────────
+
+model DailyEntry {
+  id             String   @id @default(uuid())
+  monthlyPlanId  String
+  productId      String
+  lineId         String?
+  date           DateTime @db.Date
+  shift          Int      // 1 or 2
+  actualQty      Int      @default(0) // pieces produced this shift
+  bulkUsedKg     Float    @default(0)
+  headcount      Int      @default(0) // HC
+  wipQty         Int      @default(0)
+  reworkQty      Int      @default(0)
+  notes          String?
+
+  monthlyPlan    MonthlyPlan @relation(fields: [monthlyPlanId], references: [id], onDelete: Cascade)
+  product        Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  line           Line?       @relation(fields: [lineId], references: [id])
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([monthlyPlanId, date, shift])
+}
+
+// ─── OEE Records ──────────────────────────────────────────────────────────────
+
+model OEERecord {
+  id             String   @id @default(uuid())
+  machineId      String
+  date           DateTime @db.Date
+  shift          Int      // 1 or 2
+  plannedTimeMins Float   @default(480) // total shift time (e.g. 480 = 8hrs)
+  
+  // Downtime buckets (minutes each)
+  adjustMins     Float    @default(0) // ADJ — setup & adjustment
+  mechFailMins   Float    @default(0) // MF — mechanical failure
+  minorStopMins  Float    @default(0) // MIN — minor stops
+  changeoverMins Float    @default(0) // Changeover
+  qualityLossMins Float   @default(0)
+  utilityMins    Float    @default(0) // UT — power/air
+  waitMins       Float    @default(0) // WH — waiting warehouse/materials
+  manageMins     Float    @default(0) // MG — management loss
+
+  // Output
+  outputQty      Int      @default(0)
+  rejectQty      Int      @default(0)
+
+  // Calculated KPIs (stored for fast reporting)
+  availability   Float    @default(0) // %
+  performance    Float    @default(0) // %
+  quality        Float    @default(0) // %
+  oee            Float    @default(0) // %
+
+  notes          String?
+  productId      String?  // Associated product for this shift record
+
+  machine        Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  product        Product? @relation(fields: [productId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([machineId, date, shift])
+}
+
+// ─── Loss Codes & Downtime ────────────────────────────────────────────────────
+
+model LossCode {
+  id            String  @id @default(uuid())
+  code          String  @unique
+  category      LossCategory
+  subcategory   String?
+  labelEn       String
+  labelAr       String?
+  oeeBucket     String  // Availability, Performance, Quality
+
+  downtimeEvents DowntimeEvent[]
+}
+
+model DowntimeEvent {
+  id          String    @id @default(uuid())
+  machineId   String
+  lossCodeId  String?
+  workOrderId String?
+  sourceTag   String    @default("MANUAL")
+  startTime   DateTime
+  endTime     DateTime?
+  duration    Int?      // minutes
+  comment     String?
+  status      String    @default("open")
+
+  machine     Machine    @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  lossCode    LossCode?  @relation(fields: [lossCodeId], references: [id])
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id])
+}
+
+// ─── Work Orders & Sensors (existing) ─────────────────────────────────────────
+
+model Plan {
+  id         String   @id @default(uuid())
+  lineId     String
+  productId  String?
+  targetQty  Int
+  status     String
+
+  line       Line      @relation(fields: [lineId], references: [id])
+  workOrders WorkOrder[]
+}
+
+model WorkOrder {
+  id              String   @id @default(uuid())
+  planId          String
+  status          String
+
+  plan            Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  downtimeEvents  DowntimeEvent[]
+  qualityEvents   QualityEvent[]
+  productionFacts ProductionFact[]
+}
+
+model QualityEvent {
+  id          String   @id @default(uuid())
+  workOrderId String
+  rejectQty   Int
+  reason      String
+  sourceTag   String
+  createdAt   DateTime @default(now())
+
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+}
+
+model Sensor {
+  id           String  @id @default(uuid())
+  sensorCode   String  @unique
+  type         String
+  machineId    String
+
+  machine      Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  sensorEvents SensorEvent[]
+}
+
+model SensorEvent {
+  id        String   @id @default(uuid())
+  sensorId  String
+  value     String
+  sourceTag String
+  timestamp DateTime
+
+  sensor    Sensor @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+}
+
+model MachineStateEvent {
+  id        String   @id @default(uuid())
+  machineId String
+  state     String
+  sourceTag String
+  startTime DateTime
+
+  machine   Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+}
+
+model ProductionFact {
+  id          String   @id @default(uuid())
+  workOrderId String
+  machineId   String
+  count       Int
+  sourceTag   String
+  timestamp   DateTime @default(now())
+
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  machine     Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+}
+
+// ─── Import & Audit ───────────────────────────────────────────────────────────
+
+model ImportBatch {
+  id          String   @id @default(uuid())
+  filename    String
+  type        String   // DAILY_PROD, OEE, MANUAL
+  status      ImportStatus @default(PENDING)
+  recordCount Int      @default(0)
+  errors      Json?
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  entity    String
+  details   Json
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id])
+}
